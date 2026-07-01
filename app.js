@@ -1,3 +1,9 @@
+const DB_NAME = "scheduled-audio-player";
+const DB_VERSION = 1;
+const TRACK_STORE = "tracks";
+const SETTINGS_KEY = "audio-player-settings";
+const SETTINGS_SAVE_INTERVAL = 900;
+
 const state = {
   tracks: [],
   currentIndex: -1,
@@ -10,6 +16,10 @@ const state = {
   sourceNode: null,
   visualAnimation: null,
   isSeeking: false,
+  db: null,
+  pendingSeekTime: 0,
+  settingsSaveAt: 0,
+  isRestoring: true,
 };
 
 const audio = document.querySelector("#audio");
@@ -47,11 +57,13 @@ const statusDetail = document.querySelector("#statusDetail");
 const visualizer = document.querySelector("#visualizer");
 const canvasContext = visualizer.getContext("2d");
 
-audio.volume = Number(volumeRange.value);
 setDateTimeMinimum();
+restoreSettings();
+audio.volume = Number(volumeRange.value);
 tickClock();
 startVisualizer();
 setInterval(tickClock, 1000);
+restoreTracks();
 
 uploadButton.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", (event) => {
@@ -88,14 +100,17 @@ seekRange.addEventListener("change", () => {
     audio.currentTime = (Number(seekRange.value) / 1000) * audio.duration;
   }
   state.isSeeking = false;
+  saveSettings();
 });
 
 volumeRange.addEventListener("input", () => {
   audio.volume = Number(volumeRange.value);
+  saveSettings();
 });
 
 speedSelect.addEventListener("change", () => {
   audio.playbackRate = Number(speedSelect.value);
+  saveSettings();
 });
 
 modeTabs.forEach((tab) => {
@@ -107,17 +122,23 @@ quickButtons.forEach((button) => {
     setScheduleMode("delay");
     delayInput.value = button.dataset.minutes;
     quickButtons.forEach((item) => item.classList.toggle("active", item === button));
+    saveSettings();
   });
 });
 
 scheduleButton.addEventListener("click", schedulePlayback);
 cancelScheduleButton.addEventListener("click", cancelSchedule);
+exactTimeInput.addEventListener("change", saveSettings);
+delayInput.addEventListener("input", saveSettings);
+window.addEventListener("beforeunload", saveSettings);
 
 audio.addEventListener("loadedmetadata", () => {
   duration.textContent = formatTime(audio.duration);
   updateTrackDuration(state.currentIndex, audio.duration);
+  applyPendingSeek();
   renderTracks();
   updateTotals();
+  saveTrackMetadata(state.currentIndex);
 });
 
 audio.addEventListener("timeupdate", updateProgress);
@@ -138,23 +159,28 @@ audio.addEventListener("pause", () => {
 
 audio.addEventListener("ended", handleEnded);
 
-function addFiles(files) {
+async function addFiles(files) {
   const audioFiles = files.filter((file) => file.type.startsWith("audio/") || /\.(mp3|wav|flac|m4a|aac|ogg)$/i.test(file.name));
   if (!audioFiles.length) return;
 
-  const newTracks = audioFiles.map((file) => ({
+  const now = Date.now();
+  const newTracks = audioFiles.map((file, index) => ({
+    id: createTrackId(),
     file,
     url: URL.createObjectURL(file),
     title: cleanTitle(file.name),
     meta: formatFileSize(file.size),
     duration: 0,
+    createdAt: now + index,
   }));
 
   const wasEmpty = state.tracks.length === 0;
   state.tracks.push(...newTracks);
+  await persistTracks(newTracks);
   if (wasEmpty) loadTrack(0, false);
   renderTracks();
   updateTotals();
+  saveSettings();
 }
 
 function clearTracks() {
@@ -162,6 +188,9 @@ function clearTracks() {
   state.tracks.forEach((track) => URL.revokeObjectURL(track.url));
   state.tracks = [];
   state.currentIndex = -1;
+  state.pendingSeekTime = 0;
+  clearStoredTracks();
+  localStorage.removeItem(SETTINGS_KEY);
   audio.pause();
   audio.removeAttribute("src");
   audio.load();
@@ -175,21 +204,24 @@ function clearTracks() {
   updateTotals();
 }
 
-function loadTrack(index, autoplay = true) {
+function loadTrack(index, autoplay = true, startAt = 0) {
   const track = state.tracks[index];
   if (!track) return;
 
   state.currentIndex = index;
+  state.pendingSeekTime = Math.max(0, Number(startAt) || 0);
   audio.src = track.url;
   audio.playbackRate = Number(speedSelect.value);
   audio.volume = Number(volumeRange.value);
   playerTitle.textContent = track.title;
   trackMeta.textContent = track.meta;
   trackInitial.textContent = getInitial(track.title);
-  seekRange.value = 0;
-  currentTime.textContent = "00:00";
+  const displayTime = state.pendingSeekTime && track.duration ? Math.min(state.pendingSeekTime, track.duration) : 0;
+  seekRange.value = track.duration ? String((displayTime / track.duration) * 1000) : "0";
+  currentTime.textContent = formatTime(displayTime);
   duration.textContent = track.duration ? formatTime(track.duration) : "00:00";
   renderTracks();
+  saveSettings();
 
   if (autoplay) {
     playAudio();
@@ -245,6 +277,7 @@ function handleEnded() {
   audio.currentTime = 0;
   seekRange.value = "0";
   currentTime.textContent = "00:00";
+  saveSettings();
   disc.classList.remove("playing");
   playIcon.setAttribute("href", "#icon-play");
   playButton.setAttribute("title", "播放");
@@ -257,6 +290,7 @@ function updateProgress() {
   seekRange.value = String(progress);
   currentTime.textContent = formatTime(audio.currentTime);
   duration.textContent = formatTime(audio.duration);
+  saveSettingsThrottled();
 }
 
 function renderTracks() {
@@ -297,6 +331,201 @@ function updateTotals() {
   const seconds = state.tracks.reduce((total, track) => total + (track.duration || 0), 0);
   totalDuration.textContent = formatTime(seconds);
   trackCount.textContent = String(state.tracks.length);
+}
+
+async function restoreTracks() {
+  try {
+    const records = await getStoredTracks();
+    if (!records.length) {
+      renderTracks();
+      updateTotals();
+      return;
+    }
+
+    state.tracks.forEach((track) => URL.revokeObjectURL(track.url));
+    state.tracks = records
+      .sort((first, second) => first.createdAt - second.createdAt)
+      .map((record) => ({
+        id: record.id,
+        file: record.file,
+        url: URL.createObjectURL(record.file),
+        title: record.title,
+        meta: record.meta,
+        duration: record.duration || 0,
+        createdAt: record.createdAt,
+      }));
+
+    const settings = readSettings();
+    const savedTrackIndex = state.tracks.findIndex((track) => track.id === settings.currentTrackId);
+    const fallbackIndex = Number.isInteger(settings.currentIndex) ? settings.currentIndex : 0;
+    const index = clamp(savedTrackIndex >= 0 ? savedTrackIndex : fallbackIndex, 0, state.tracks.length - 1);
+    const startAt = settings.currentTrackId === state.tracks[index]?.id ? settings.currentTime : 0;
+
+    loadTrack(index, false, startAt);
+    renderTracks();
+    updateTotals();
+  } catch (error) {
+    setStatusWarning("无法恢复歌单", "浏览器本地存储不可用，请重新添加音频。");
+  } finally {
+    state.isRestoring = false;
+  }
+}
+
+async function persistTracks(tracks) {
+  try {
+    await Promise.all(tracks.map((track) => putStoredTrack(track)));
+  } catch (error) {
+    setStatusWarning("保存失败", "浏览器本地空间不足或存储被禁用。");
+  }
+}
+
+async function saveTrackMetadata(index) {
+  const track = state.tracks[index];
+  if (!track) return;
+
+  try {
+    await putStoredTrack(track);
+  } catch (error) {
+    setStatusWarning("保存失败", "曲目信息未能写入本地存储。");
+  }
+}
+
+async function getStoredTracks() {
+  const db = await getDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(TRACK_STORE, "readonly");
+    const store = transaction.objectStore(TRACK_STORE);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function putStoredTrack(track) {
+  const db = await getDatabase();
+  const record = {
+    id: track.id,
+    title: track.title,
+    meta: track.meta,
+    duration: track.duration || 0,
+    createdAt: track.createdAt,
+    file: track.file,
+  };
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(TRACK_STORE, "readwrite");
+    const store = transaction.objectStore(TRACK_STORE);
+    store.put(record);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+async function clearStoredTracks() {
+  try {
+    const db = await getDatabase();
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(TRACK_STORE, "readwrite");
+      const store = transaction.objectStore(TRACK_STORE);
+      store.clear();
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } catch (error) {
+    setStatusWarning("清理失败", "浏览器本地歌单没有完全清除。");
+  }
+}
+
+function getDatabase() {
+  if (state.db) return Promise.resolve(state.db);
+  if (!window.indexedDB) return Promise.reject(new Error("IndexedDB unavailable"));
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(TRACK_STORE)) {
+        db.createObjectStore(TRACK_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => {
+      state.db = request.result;
+      resolve(state.db);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function restoreSettings() {
+  const settings = readSettings();
+
+  if (Number.isFinite(settings.volume)) {
+    volumeRange.value = String(clamp(settings.volume, 0, 1));
+  }
+
+  if ([...speedSelect.options].some((option) => option.value === String(settings.speed))) {
+    speedSelect.value = String(settings.speed);
+  }
+
+  if (settings.scheduleMode === "exact" || settings.scheduleMode === "delay") {
+    setScheduleMode(settings.scheduleMode);
+  }
+
+  if (settings.delayMinutes) {
+    delayInput.value = String(settings.delayMinutes);
+  }
+
+  if (settings.exactTime) {
+    exactTimeInput.value = settings.exactTime;
+  }
+}
+
+function readSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveSettingsThrottled() {
+  const now = Date.now();
+  if (now - state.settingsSaveAt < SETTINGS_SAVE_INTERVAL) return;
+  state.settingsSaveAt = now;
+  saveSettings();
+}
+
+function saveSettings() {
+  if (state.isRestoring) return;
+
+  const track = state.tracks[state.currentIndex];
+  const settings = {
+    currentIndex: state.currentIndex,
+    currentTrackId: track?.id || null,
+    currentTime: state.pendingSeekTime || (Number.isFinite(audio.currentTime) ? audio.currentTime : 0),
+    volume: Number(volumeRange.value),
+    speed: Number(speedSelect.value),
+    scheduleMode: state.scheduleMode,
+    delayMinutes: Number(delayInput.value) || 15,
+    exactTime: exactTimeInput.value,
+  };
+
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch (error) {
+    setStatusWarning("保存失败", "浏览器本地状态存储被禁用。");
+  }
+}
+
+function applyPendingSeek() {
+  if (!state.pendingSeekTime || !audio.duration) return;
+  const time = Math.min(state.pendingSeekTime, Math.max(0, audio.duration - 0.25));
+  audio.currentTime = time;
+  seekRange.value = String((time / audio.duration) * 1000);
+  currentTime.textContent = formatTime(time);
+  state.pendingSeekTime = 0;
 }
 
 function schedulePlayback() {
@@ -410,6 +639,7 @@ function setScheduleMode(mode) {
   if (mode !== "delay") {
     quickButtons.forEach((button) => button.classList.remove("active"));
   }
+  saveSettings();
 }
 
 function setStatusWarning(title, detail) {
@@ -599,6 +829,17 @@ function toLocalInputValue(date) {
   const offset = date.getTimezoneOffset();
   const local = new Date(date.getTime() - offset * 60 * 1000);
   return local.toISOString().slice(0, 16);
+}
+
+function createTrackId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `track-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function escapeHtml(value) {
