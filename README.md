@@ -62,3 +62,9 @@ npx serve .
 ## 浏览器兼容
 
 建议使用最新版 Chrome、Edge、Firefox 或 Safari。部分浏览器会限制自动播放，如果定时触发时被拦截，页面会提示用户手动点击播放。
+
+## License / 许可
+
+This project is source-available for non-commercial use only. Commercial use is not permitted without explicit written permission from Boredlittlenan. See [LICENSE.md](LICENSE.md).
+
+本项目源代码仅允许非商业用途查看、使用、修改和分发。未经 Boredlittlenan 明确书面许可，不允许商用。详见 [LICENSE.md](LICENSE.md)。
