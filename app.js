@@ -28,6 +28,7 @@ const uploadButton = document.querySelector("#uploadButton");
 const clearButton = document.querySelector("#clearButton");
 const dropZone = document.querySelector("#dropZone");
 const trackList = document.querySelector("#trackList");
+const emptyLibrary = document.querySelector("#emptyLibrary");
 const trackCount = document.querySelector("#trackCount");
 const totalDuration = document.querySelector("#totalDuration");
 const playerTitle = document.querySelector("#playerTitle");
@@ -42,6 +43,7 @@ const seekRange = document.querySelector("#seekRange");
 const currentTime = document.querySelector("#currentTime");
 const duration = document.querySelector("#duration");
 const volumeRange = document.querySelector("#volumeRange");
+const volumeValue = document.querySelector("#volumeValue");
 const speedSelect = document.querySelector("#speedSelect");
 const clockText = document.querySelector("#clockText");
 const exactTimeInput = document.querySelector("#exactTimeInput");
@@ -60,6 +62,9 @@ const canvasContext = visualizer.getContext("2d");
 setDateTimeMinimum();
 restoreSettings();
 audio.volume = Number(volumeRange.value);
+updateRangeProgress(volumeRange, Number(volumeRange.value));
+volumeValue.textContent = `${Math.round(Number(volumeRange.value) * 100)}%`;
+updateRangeProgress(seekRange, 0);
 tickClock();
 startVisualizer();
 setInterval(tickClock, 1000);
@@ -90,6 +95,7 @@ nextButton.addEventListener("click", playNext);
 
 seekRange.addEventListener("input", () => {
   state.isSeeking = true;
+  updateRangeProgress(seekRange, Number(seekRange.value) / 1000);
   if (audio.duration) {
     currentTime.textContent = formatTime((Number(seekRange.value) / 1000) * audio.duration);
   }
@@ -105,6 +111,8 @@ seekRange.addEventListener("change", () => {
 
 volumeRange.addEventListener("input", () => {
   audio.volume = Number(volumeRange.value);
+  volumeValue.textContent = `${Math.round(audio.volume * 100)}%`;
+  updateRangeProgress(volumeRange, audio.volume);
   saveSettings();
 });
 
@@ -194,12 +202,13 @@ function clearTracks() {
   audio.pause();
   audio.removeAttribute("src");
   audio.load();
-  playerTitle.textContent = "等待音频";
-  trackMeta.textContent = "选择一首本地音乐";
-  trackInitial.textContent = "A";
+  playerTitle.textContent = "等待你的第一首歌";
+  trackMeta.textContent = "添加本地音频即可开始";
+  trackInitial.textContent = "S";
   currentTime.textContent = "00:00";
   duration.textContent = "00:00";
   seekRange.value = 0;
+  updateRangeProgress(seekRange, 0);
   renderTracks();
   updateTotals();
 }
@@ -218,6 +227,7 @@ function loadTrack(index, autoplay = true, startAt = 0) {
   trackInitial.textContent = getInitial(track.title);
   const displayTime = state.pendingSeekTime && track.duration ? Math.min(state.pendingSeekTime, track.duration) : 0;
   seekRange.value = track.duration ? String((displayTime / track.duration) * 1000) : "0";
+  updateRangeProgress(seekRange, track.duration ? displayTime / track.duration : 0);
   currentTime.textContent = formatTime(displayTime);
   duration.textContent = track.duration ? formatTime(track.duration) : "00:00";
   renderTracks();
@@ -276,6 +286,7 @@ function handleEnded() {
   audio.pause();
   audio.currentTime = 0;
   seekRange.value = "0";
+  updateRangeProgress(seekRange, 0);
   currentTime.textContent = "00:00";
   saveSettings();
   disc.classList.remove("playing");
@@ -288,6 +299,7 @@ function updateProgress() {
   if (!audio.duration || state.isSeeking) return;
   const progress = (audio.currentTime / audio.duration) * 1000;
   seekRange.value = String(progress);
+  updateRangeProgress(seekRange, progress / 1000);
   currentTime.textContent = formatTime(audio.currentTime);
   duration.textContent = formatTime(audio.duration);
   saveSettingsThrottled();
@@ -295,6 +307,10 @@ function updateProgress() {
 
 function renderTracks() {
   trackList.innerHTML = "";
+  emptyLibrary.hidden = state.tracks.length > 0;
+  clearButton.disabled = state.tracks.length === 0;
+  prevButton.disabled = state.tracks.length < 2;
+  nextButton.disabled = state.tracks.length < 2;
 
   state.tracks.forEach((track, index) => {
     const item = document.createElement("li");
@@ -307,18 +323,53 @@ function renderTracks() {
         <span class="track-subtitle">${escapeHtml(track.meta)}</span>
       </span>
       <span class="track-time">${track.duration ? formatTime(track.duration) : "--:--"}</span>
+      <button class="track-remove" type="button" title="移除 ${escapeHtml(track.title)}" aria-label="移除 ${escapeHtml(track.title)}">
+        <svg><use href="#icon-trash"></use></svg>
+      </button>
     `;
     item.addEventListener("click", () => loadTrack(index, true));
     item.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
+      if (event.target === item && (event.key === "Enter" || event.key === " ")) {
         event.preventDefault();
         loadTrack(index, true);
       }
+    });
+    item.querySelector(".track-remove").addEventListener("click", (event) => {
+      event.stopPropagation();
+      removeTrack(index);
     });
     trackList.appendChild(item);
   });
 
   trackCount.textContent = String(state.tracks.length);
+}
+
+async function removeTrack(index) {
+  const track = state.tracks[index];
+  if (!track) return;
+
+  const wasPlaying = !audio.paused;
+  const wasCurrent = index === state.currentIndex;
+  URL.revokeObjectURL(track.url);
+  state.tracks.splice(index, 1);
+  await deleteStoredTrack(track.id);
+
+  if (!state.tracks.length) {
+    clearTracks();
+    return;
+  }
+
+  if (index < state.currentIndex) {
+    state.currentIndex -= 1;
+  } else if (wasCurrent) {
+    const nextIndex = Math.min(index, state.tracks.length - 1);
+    loadTrack(nextIndex, wasPlaying);
+  }
+
+  renderTracks();
+  updateTotals();
+  if (state.scheduleTarget) updateScheduleCountdown();
+  saveSettings();
 }
 
 function updateTrackDuration(index, seconds) {
@@ -420,6 +471,21 @@ async function putStoredTrack(track) {
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
   });
+}
+
+async function deleteStoredTrack(id) {
+  try {
+    const db = await getDatabase();
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(TRACK_STORE, "readwrite");
+      transaction.objectStore(TRACK_STORE).delete(id);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } catch (error) {
+    setStatusWarning("移除失败", "这首音频未能从浏览器存储中移除。");
+  }
 }
 
 async function clearStoredTracks() {
@@ -524,6 +590,7 @@ function applyPendingSeek() {
   const time = Math.min(state.pendingSeekTime, Math.max(0, audio.duration - 0.25));
   audio.currentTime = time;
   seekRange.value = String((time / audio.duration) * 1000);
+  updateRangeProgress(seekRange, time / audio.duration);
   currentTime.textContent = formatTime(time);
   state.pendingSeekTime = 0;
 }
@@ -590,8 +657,8 @@ function cancelSchedule(resetStatus = true) {
   cancelScheduleButton.disabled = true;
   scheduleStatus.classList.remove("active", "warning");
   if (resetStatus) {
-    statusTitle.textContent = "未设置";
-    statusDetail.textContent = "当前没有播放计划";
+    statusTitle.textContent = "暂未设置";
+    statusDetail.textContent = "创建后，这里会显示剩余时间。";
   }
 }
 
@@ -652,8 +719,8 @@ function setStatusWarning(title, detail) {
 function setStatusNeutral() {
   if (state.scheduleTarget) return;
   scheduleStatus.classList.remove("warning");
-  statusTitle.textContent = "未设置";
-  statusDetail.textContent = "当前没有播放计划";
+  statusTitle.textContent = "暂未设置";
+  statusDetail.textContent = "创建后，这里会显示剩余时间。";
 }
 
 async function prepareAudioGraph() {
@@ -690,10 +757,9 @@ function startVisualizer() {
     canvasContext.clearRect(0, 0, width, height);
 
     const gradient = canvasContext.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, "rgba(255, 106, 77, 0.95)");
-    gradient.addColorStop(0.45, "rgba(247, 201, 72, 0.88)");
-    gradient.addColorStop(0.72, "rgba(69, 215, 181, 0.88)");
-    gradient.addColorStop(1, "rgba(85, 184, 255, 0.9)");
+    gradient.addColorStop(0, "rgba(255, 157, 122, 0.86)");
+    gradient.addColorStop(0.48, "rgba(150, 135, 244, 0.8)");
+    gradient.addColorStop(1, "rgba(217, 255, 99, 0.84)");
 
     if (state.analyser && !audio.paused) {
       state.analyser.getByteFrequencyData(buffer);
@@ -739,7 +805,7 @@ function drawWave(buffer, width, height) {
   canvasContext.save();
   canvasContext.globalAlpha = 0.38;
   canvasContext.lineWidth = 3;
-  canvasContext.strokeStyle = "rgba(247, 244, 237, 0.76)";
+  canvasContext.strokeStyle = "rgba(217, 255, 99, 0.52)";
   canvasContext.beginPath();
 
   for (let index = 0; index < buffer.length; index += 1) {
@@ -840,6 +906,10 @@ function createTrackId() {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function updateRangeProgress(element, ratio) {
+  element.style.setProperty("--range-progress", `${clamp(Number(ratio) || 0, 0, 1) * 100}%`);
 }
 
 function escapeHtml(value) {

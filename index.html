@@ -3,39 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>时刻声场 | 定时音频播放器</title>
+    <meta name="theme-color" content="#0d0e12" />
+    <meta
+      name="description"
+      content="时刻声场是一款保存在浏览器本地的定时音频播放器。"
+    />
+    <title>时刻声场 | 本地定时音频播放器</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23101010'/%3E%3Cpath d='M18 42V24M30 46V16M42 40V22' stroke='%2345d7b5' stroke-width='7' stroke-linecap='round'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%2314161d'/%3E%3Cpath d='M18 38V26M28 44V20M38 40V24M48 35v-6' stroke='%23d9ff63' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <svg class="sprite" aria-hidden="true">
       <symbol id="icon-upload" viewBox="0 0 24 24">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <path d="M17 8 12 3 7 8" />
-        <path d="M12 3v12" />
+        <path d="M12 16V4" />
+        <path d="m7 9 5-5 5 5" />
+        <path d="M5 20h14" />
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
       </symbol>
       <symbol id="icon-play" viewBox="0 0 24 24">
         <path d="m8 5 11 7-11 7Z" />
       </symbol>
       <symbol id="icon-pause" viewBox="0 0 24 24">
-        <path d="M8 5v14" />
-        <path d="M16 5v14" />
+        <path d="M8 5v14M16 5v14" />
       </symbol>
       <symbol id="icon-prev" viewBox="0 0 24 24">
-        <path d="m19 20-10-8 10-8v16Z" />
-        <path d="M5 19V5" />
+        <path d="m19 20-10-8 10-8v16ZM5 19V5" />
       </symbol>
       <symbol id="icon-next" viewBox="0 0 24 24">
-        <path d="m5 4 10 8-10 8V4Z" />
-        <path d="M19 5v14" />
+        <path d="m5 4 10 8-10 8V4ZM19 5v14" />
       </symbol>
       <symbol id="icon-volume" viewBox="0 0 24 24">
         <path d="M11 5 6 9H3v6h3l5 4Z" />
-        <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-        <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+        <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
       </symbol>
       <symbol id="icon-clock" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="9" />
@@ -45,140 +49,170 @@
         <path d="M6 6h12v12H6Z" />
       </symbol>
       <symbol id="icon-trash" viewBox="0 0 24 24">
-        <path d="M3 6h18" />
-        <path d="M8 6V4h8v2" />
-        <path d="m19 6-1 15H6L5 6" />
-        <path d="M10 11v6" />
-        <path d="M14 11v6" />
+        <path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6M10 11v6M14 11v6" />
       </symbol>
       <symbol id="icon-wave" viewBox="0 0 24 24">
-        <path d="M3 12h2l2-6 4 12 3-9 2 6h5" />
+        <path d="M4 14v-4M8 18V6M12 15V9M16 20V4M20 14v-4" />
+      </symbol>
+      <symbol id="icon-lock" viewBox="0 0 24 24">
+        <rect x="5" y="10" width="14" height="10" rx="3" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
       </symbol>
     </svg>
 
     <input id="fileInput" type="file" accept="audio/*" multiple hidden />
 
+    <div class="page-glow page-glow-one" aria-hidden="true"></div>
+    <div class="page-glow page-glow-two" aria-hidden="true"></div>
+
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-          <div>
-            <h1>时刻声场</h1>
-            <p>Audio Timer</p>
-          </div>
+        <a class="brand" href="." aria-label="时刻声场首页">
+          <span class="brand-mark" aria-hidden="true">
+            <i></i><i></i><i></i><i></i>
+          </span>
+          <span class="brand-copy">
+            <strong>时刻声场</strong>
+            <small>LOCAL AUDIO STUDIO</small>
+          </span>
+        </a>
+
+        <div class="privacy-note">
+          <span class="online-dot" aria-hidden="true"></span>
+          音频仅保存在你的浏览器
         </div>
 
-        <div class="topbar-actions">
-          <div class="mini-stat">
-            <span id="trackCount">0</span>
-            <small>曲目</small>
-          </div>
-          <button class="button primary" id="uploadButton" type="button">
-            <svg><use href="#icon-upload"></use></svg>
-            添加音频
-          </button>
-        </div>
+        <button class="button primary" id="uploadButton" type="button">
+          <svg><use href="#icon-plus"></use></svg>
+          添加音频
+        </button>
       </header>
 
       <main class="workspace">
         <section class="panel library-panel" aria-labelledby="libraryTitle">
-          <div class="panel-title">
+          <div class="panel-title library-heading">
             <div>
-              <span class="eyebrow">Library</span>
-              <h2 id="libraryTitle">歌单</h2>
+              <span class="eyebrow">你的音乐</span>
+              <h1 id="libraryTitle">播放列表</h1>
             </div>
-            <button class="icon-button" id="clearButton" type="button" title="清空歌单" aria-label="清空歌单">
-              <svg><use href="#icon-trash"></use></svg>
-            </button>
+            <div class="library-actions">
+              <span class="count-pill"><strong id="trackCount">0</strong> 首</span>
+              <button class="icon-button subtle" id="clearButton" type="button" title="清空歌单" aria-label="清空歌单">
+                <svg><use href="#icon-trash"></use></svg>
+              </button>
+            </div>
           </div>
 
-          <div class="drop-zone" id="dropZone">
-            <div class="drop-icon">
-              <svg><use href="#icon-wave"></use></svg>
-            </div>
-            <strong>本地音频</strong>
-            <span>MP3 / WAV / FLAC / M4A</span>
-          </div>
+          <button class="drop-zone" id="dropZone" type="button">
+            <span class="drop-icon">
+              <svg><use href="#icon-upload"></use></svg>
+            </span>
+            <span class="drop-copy">
+              <strong>拖入或选择本地音频</strong>
+              <small>MP3、WAV、FLAC、M4A 等</small>
+            </span>
+          </button>
 
           <div class="list-header">
-            <span>播放队列</span>
+            <span>队列</span>
             <span id="totalDuration">00:00</span>
           </div>
-          <ol class="track-list" id="trackList"></ol>
+
+          <div class="library-content">
+            <div class="empty-library" id="emptyLibrary">
+              <span class="empty-wave" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i>
+              </span>
+              <strong>歌单还是空的</strong>
+              <p>添加几首歌，刷新或重开浏览器后也会保留。</p>
+            </div>
+            <ol class="track-list" id="trackList"></ol>
+          </div>
+
+          <div class="storage-hint">
+            <svg><use href="#icon-lock"></use></svg>
+            <span><strong>本地存储</strong> · 不上传任何音频</span>
+          </div>
         </section>
 
         <section class="panel player-panel" aria-labelledby="playerTitle">
+          <div class="player-topline">
+            <span class="now-badge"><i aria-hidden="true"></i> NOW PLAYING</span>
+            <span class="format-badge">LOCAL</span>
+          </div>
+
           <div class="visual-stage">
-            <canvas id="visualizer" width="900" height="500"></canvas>
-            <div class="visual-frame">
-              <div class="disc" id="disc">
-                <div class="disc-ring"></div>
-                <div class="disc-center" id="trackInitial">A</div>
-              </div>
+            <canvas id="visualizer" width="1000" height="760"></canvas>
+            <div class="artwork-shadow" aria-hidden="true"></div>
+            <div class="disc" id="disc">
+              <div class="disc-grid" aria-hidden="true"></div>
+              <div class="disc-orbit orbit-one" aria-hidden="true"></div>
+              <div class="disc-orbit orbit-two" aria-hidden="true"></div>
+              <div class="disc-center" id="trackInitial">S</div>
+              <span class="disc-caption">SHIKE · AUDIO</span>
             </div>
           </div>
 
           <div class="now-playing">
-            <span class="eyebrow">Now Playing</span>
-            <h2 id="playerTitle">等待音频</h2>
-            <p id="trackMeta">选择一首本地音乐</p>
+            <span class="eyebrow">当前播放</span>
+            <h2 id="playerTitle">等待你的第一首歌</h2>
+            <p id="trackMeta">添加本地音频即可开始</p>
           </div>
 
           <div class="timeline">
-            <span id="currentTime">00:00</span>
             <input id="seekRange" class="range" type="range" min="0" max="1000" value="0" aria-label="播放进度" />
-            <span id="duration">00:00</span>
+            <div class="timeline-labels">
+              <span id="currentTime">00:00</span>
+              <span id="duration">00:00</span>
+            </div>
           </div>
 
           <div class="transport">
-            <button class="icon-button" id="prevButton" type="button" title="上一首" aria-label="上一首">
+            <button class="transport-button" id="prevButton" type="button" title="上一首" aria-label="上一首">
               <svg><use href="#icon-prev"></use></svg>
             </button>
             <button class="play-button" id="playButton" type="button" title="播放" aria-label="播放">
               <svg id="playIcon"><use href="#icon-play"></use></svg>
             </button>
-            <button class="icon-button" id="nextButton" type="button" title="下一首" aria-label="下一首">
+            <button class="transport-button" id="nextButton" type="button" title="下一首" aria-label="下一首">
               <svg><use href="#icon-next"></use></svg>
             </button>
           </div>
 
           <div class="control-strip">
             <label class="control-field volume-field">
-              <span>
-                <svg><use href="#icon-volume"></use></svg>
-                音量
+              <span class="control-label">
+                <span><svg><use href="#icon-volume"></use></svg>音量</span>
+                <strong id="volumeValue">72%</strong>
               </span>
-              <input id="volumeRange" class="range" type="range" min="0" max="1" step="0.01" value="0.72" />
+              <input id="volumeRange" class="range" type="range" min="0" max="1" step="0.01" value="0.72" aria-label="音量" />
             </label>
-            <label class="control-field">
-              <span>速度</span>
-              <select id="speedSelect">
+            <label class="control-field speed-field">
+              <span class="control-label">播放速度</span>
+              <select id="speedSelect" aria-label="播放速度">
                 <option value="0.75">0.75x</option>
-                <option value="1" selected>1x</option>
+                <option value="1" selected>1.00x</option>
                 <option value="1.25">1.25x</option>
-                <option value="1.5">1.5x</option>
-                <option value="2">2x</option>
+                <option value="1.5">1.50x</option>
+                <option value="2">2.00x</option>
               </select>
             </label>
           </div>
         </section>
 
-        <section class="panel schedule-panel" aria-labelledby="scheduleTitle">
-          <div class="panel-title">
+        <aside class="panel schedule-panel" aria-labelledby="scheduleTitle">
+          <div class="panel-title schedule-heading">
             <div>
-              <span class="eyebrow">Schedule</span>
+              <span class="eyebrow">播放计划</span>
               <h2 id="scheduleTitle">定时播放</h2>
             </div>
-            <div class="clock-badge">
+            <div class="clock-badge" aria-label="当前时间">
               <svg><use href="#icon-clock"></use></svg>
               <span id="clockText">--:--</span>
             </div>
           </div>
+
+          <p class="schedule-intro">选好歌，然后让它在你需要的时刻响起。</p>
 
           <div class="mode-tabs" role="tablist" aria-label="定时模式">
             <button class="mode-tab active" id="exactMode" type="button" data-mode="exact">指定时间</button>
@@ -187,41 +221,50 @@
 
           <div class="schedule-form">
             <label class="field-block schedule-mode-block" data-panel="exact">
-              <span>播放时间</span>
+              <span>开始播放</span>
               <input id="exactTimeInput" type="datetime-local" />
             </label>
 
             <label class="field-block schedule-mode-block hidden" data-panel="delay">
-              <span>倒计时分钟</span>
-              <input id="delayInput" type="number" min="1" max="1440" value="15" />
+              <span>等待时长（分钟）</span>
+              <input id="delayInput" type="number" min="1" max="1440" value="15" inputmode="numeric" />
             </label>
 
-            <div class="quick-times" aria-label="快速倒计时">
-              <button type="button" data-minutes="5">5 分钟</button>
-              <button type="button" data-minutes="15">15 分钟</button>
-              <button type="button" data-minutes="30">30 分钟</button>
-              <button type="button" data-minutes="60">60 分钟</button>
+            <div class="quick-section">
+              <span>快速选择</span>
+              <div class="quick-times" aria-label="快速倒计时">
+                <button type="button" data-minutes="5">5 分钟</button>
+                <button type="button" data-minutes="15">15 分钟</button>
+                <button type="button" data-minutes="30">30 分钟</button>
+                <button type="button" data-minutes="60">1 小时</button>
+              </div>
             </div>
 
             <button class="button schedule-button" id="scheduleButton" type="button">
               <svg><use href="#icon-clock"></use></svg>
-              启用定时
+              创建播放计划
             </button>
           </div>
 
           <div class="schedule-status" id="scheduleStatus">
+            <span class="status-icon" aria-hidden="true"><i></i></span>
             <div>
-              <span class="status-label">状态</span>
-              <strong id="statusTitle">未设置</strong>
+              <span class="status-label">计划状态</span>
+              <strong id="statusTitle">暂未设置</strong>
+              <p id="statusDetail">创建后，这里会显示剩余时间。</p>
             </div>
-            <p id="statusDetail">当前没有播放计划</p>
           </div>
 
           <button class="button ghost" id="cancelScheduleButton" type="button" disabled>
             <svg><use href="#icon-stop"></use></svg>
-            取消定时
+            取消当前计划
           </button>
-        </section>
+
+          <div class="schedule-tip">
+            <span>提示</span>
+            <p>定时播放期间请保持此页面打开，并允许浏览器播放声音。</p>
+          </div>
+        </aside>
       </main>
     </div>
 
